@@ -1,6 +1,9 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
   "rewrites": [
-    { "source": "/(.*)", "destination": "https://mvc-backend-b5wn.vercel.app/api" }
+    {
+      "source": "/(.*)",
+      "destination": "/server.js"
+    }
   ]
 }
