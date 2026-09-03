@@ -65,8 +65,20 @@ if (process.env.NODE_ENV === "development") {
   app.use(morgan("dev"));
 }
 
-// Health Check Route
-app.get("/api/health", (req, res) =>
+/* ------------------------------------------------------------------ *
+ * The API, as one router
+ *
+ * It is mounted twice below — at "/api" and at "/" — so the API answers
+ * whether or not the "/api" prefix survives the hosting platform's routing.
+ * That prefix going missing is what made every request come back as
+ * "Not found - /api" on Vercel.
+ * ------------------------------------------------------------------ */
+
+const apiRouter = express.Router();
+
+// Answered before the database middleware, so it stays instant and can still
+// say what is wrong when MongoDB is unreachable.
+apiRouter.get("/health", (req, res) =>
   res.json({
     success: true,
     service: "CookMe API",
@@ -77,21 +89,39 @@ app.get("/api/health", (req, res) =>
   })
 );
 
-// DB Connection Enforcement Middleware
-app.use(async (req, res, next) => {
+// Make sure the database is up before any route touches it. On Vercel this
+// runs per invocation and returns instantly once the instance is warm.
+apiRouter.use(async (req, res, next) => {
+  let conn = null;
   try {
-    await connectDB();
-    next();
-  } catch (error) {
-    next(error);
+    conn = await connectDB();
+  } catch {
+    conn = null;
   }
+
+  // Without a database, say so at once. Letting the request through would
+  // make every query buffer and then time out — seconds of waiting for an
+  // answer we already know.
+  if (!conn) {
+    return res.status(503).json({
+      success: false,
+      message:
+        "The database is not reachable. Set MONGO_URI to a MongoDB Atlas " +
+        "connection string — localhost is not reachable from a deployed server.",
+      database: "disconnected",
+    });
+  }
+
+  return next();
 });
 
-// API Routes
-app.use("/api/products", productRoutes);
-app.use("/api/categories", categoryRoutes);
-app.use("/api/orders", orderRoutes);
-app.use("/api/users", userRoutes);
+apiRouter.use("/products", productRoutes);
+apiRouter.use("/categories", categoryRoutes);
+apiRouter.use("/orders", orderRoutes);
+apiRouter.use("/users", userRoutes);
+
+app.use("/api", apiRouter);
+app.use("/", apiRouter);
 
 // Error Handling Middlewares
 app.use(notFound);
