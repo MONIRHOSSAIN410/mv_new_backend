@@ -16,20 +16,7 @@ dotenv.config();
 const app = express();
 
 /* ------------------------------------------------------------------ *
- * CORS
- *
- * CLIENT_URL is a comma-separated list of the sites allowed to call this
- * API, for example:
- *
- *   CLIENT_URL=http://localhost:5173,https://cookme.vercel.app
- *
- * An entry may start with "*." to allow a whole subdomain, which is handy
- * for Vercel preview deployments:
- *
- *   CLIENT_URL=https://cookme.vercel.app,*.vercel.app
- *
- * Leaving CLIENT_URL unset allows every origin — fine while developing,
- * worth tightening once the site is live.
+ * CORS Setup
  * ------------------------------------------------------------------ */
 
 const trimSlash = (s) => s.trim().replace(/\/+$/, "");
@@ -40,7 +27,7 @@ const ALLOWED = (process.env.CLIENT_URL || "")
   .filter(Boolean);
 
 function isAllowed(origin) {
-  if (!ALLOWED.length) return true; // not configured -> open
+  if (!ALLOWED.length) return true;
   const clean = trimSlash(origin);
   const host = (() => {
     try {
@@ -56,30 +43,29 @@ function isAllowed(origin) {
   });
 }
 
-app.get('/', (req, res) => {
-  res.send('Server is running!');
-});
-
-
 app.use(
   cors({
     origin(origin, callback) {
-      // No Origin header: curl, server-to-server, same-origin requests.
-      if (!origin) return callback(null, true);
-      if (isAllowed(origin)) return callback(null, true);
+      if (!origin || isAllowed(origin)) {
+        return callback(null, true);
+      }
       return callback(new Error(`Origin ${origin} is not allowed by CORS`));
     },
     credentials: true,
   })
 );
 
-app.use(express.json());
-if (process.env.NODE_ENV === "development") app.use(morgan("dev"));
+/* ------------------------------------------------------------------ *
+ * Middlewares & Routes
+ * ------------------------------------------------------------------ */
 
-/**
- * Answered before the database middleware below, so it stays instant and can
- * still say what is wrong when MongoDB is unreachable.
- */
+app.use(express.json());
+
+if (process.env.NODE_ENV === "development") {
+  app.use(morgan("dev"));
+}
+
+// Health Check Route
 app.get("/api/health", (req, res) =>
   res.json({
     success: true,
@@ -91,32 +77,35 @@ app.get("/api/health", (req, res) =>
   })
 );
 
-/**
- * Make sure the database is up before any route touches it. On Vercel this
- * runs on every invocation and returns instantly once the instance is warm.
- */
+// DB Connection Enforcement Middleware
 app.use(async (req, res, next) => {
   try {
     await connectDB();
-  } catch {
-    /* connectDB already logged it; the route will answer with its own error */
+    next();
+  } catch (error) {
+    next(error);
   }
-  next();
 });
 
+// API Routes
 app.use("/api/products", productRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/users", userRoutes);
 
+// Error Handling Middlewares
 app.use(notFound);
 app.use(errorHandler);
 
-// On Vercel the platform serves the app (see api/index.js), so there is no
-// port to listen on. Locally `npm start` still runs a normal server.
+/* ------------------------------------------------------------------ *
+ * Server Start
+ * ------------------------------------------------------------------ */
+
 if (!process.env.VERCEL) {
   const PORT = process.env.PORT || 5000;
-  app.listen(PORT, () => console.log(`CookMe API running on http://localhost:${PORT}`));
+  app.listen(PORT, () =>
+    console.log(`CookMe API running on http://localhost:${PORT}`)
+  );
 }
 
 export default app;
