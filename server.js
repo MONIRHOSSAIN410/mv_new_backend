@@ -56,6 +56,11 @@ function isAllowed(origin) {
   });
 }
 
+app.get('/', (req, res) => {
+  res.send('Server is running!');
+});
+
+
 app.use(
   cors({
     origin(origin, callback) {
